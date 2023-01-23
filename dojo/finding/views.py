@@ -810,7 +810,7 @@ def edit_finding(request, fid):
                 if (form['active'].value() is False or form['false_p'].value() or form['out_of_scope'].value()) and form['duplicate'].value() is False:
                     now = timezone.now()
                     new_finding.is_mitigated = True
-                    endpoint_status = new_finding.endpoint_status.all()
+                    endpoint_status = new_finding.status_finding.all()
                     for status in endpoint_status:
                         status.mitigated_by = form.cleaned_data.get("mitigated_by") or request.user
                         status.mitigated_time = form.cleaned_data.get("mitigated") or now
@@ -1938,6 +1938,11 @@ def finding_bulk_update_all(request, pid=None):
 
                     for prod in prods:
                         calculate_grade(prod)
+
+                if form.cleaned_data['date']:
+                    for finding in finds:
+                        finding.date = form.cleaned_data['date']
+                        finding.save_no_options()
 
                 if form.cleaned_data['planned_remediation_date']:
                     for finding in finds:

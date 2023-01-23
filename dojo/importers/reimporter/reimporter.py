@@ -26,7 +26,7 @@ class DojoDefaultReImporter(object):
 
     @dojo_async_task
     @app.task(ignore_result=False)
-    def process_parsed_findings(self, test, parsed_findings, scan_type, user, active, verified, minimum_severity=None,
+    def process_parsed_findings(self, test, parsed_findings, scan_type, user, active=None, verified=None, minimum_severity=None,
                                 endpoints_to_add=None, push_to_jira=None, group_by=None, now=timezone.now(), service=None, scan_date=None,
                                 do_not_reactivate=False, create_finding_groups_for_all_findings=True, **kwargs):
 
@@ -73,6 +73,14 @@ class DojoDefaultReImporter(object):
             if service:
                 item.service = service
 
+            if item.dynamic_finding:
+                for e in item.unsaved_endpoints:
+                    try:
+                        e.clean()
+                    except ValidationError as err:
+                        logger.warning("DefectDojo is storing broken endpoint because cleaning wasn't successful: "
+                                       "{}".format(err))
+
             item.hash_code = item.compute_hash_code()
             deduplicationLogger.debug("item's hash_code: %s", item.hash_code)
 
@@ -85,6 +93,11 @@ class DojoDefaultReImporter(object):
                 finding = findings[0]
                 if finding.false_p or finding.out_of_scope or finding.risk_accepted:
                     logger.debug('%i: skipping existing finding (it is marked as false positive:%s and/or out of scope:%s or is a risk accepted:%s): %i:%s:%s:%s', i, finding.false_p, finding.out_of_scope, finding.risk_accepted, finding.id, finding, finding.component_name, finding.component_version)
+                    if (finding.false_p == item.false_p and finding.out_of_scope == item.out_of_scope
+                            and finding.risk_accepted == item.risk_accepted):
+                        unchanged_items.append(finding)
+                        unchanged_count += 1
+                        continue
                 elif finding.is_mitigated:
                     # if the reimported item has a mitigation time, we can compare
                     if item.is_mitigated:
@@ -108,7 +121,8 @@ class DojoDefaultReImporter(object):
                             finding.is_mitigated = False
                             finding.mitigated_by = None
                             finding.active = True
-                            finding.verified = verified
+                            if verified is not None:
+                                finding.verified = verified
                         if do_not_reactivate:
                             logger.debug('%i: skipping reactivating by user\'s choice do_not_reactivate: %i:%s:%s:%s', i, finding.id, finding, finding.component_name, finding.component_version)
                             note = Notes(
@@ -163,8 +177,10 @@ class DojoDefaultReImporter(object):
                             finding.is_mitigated = True
                             finding.mitigated_by = item.mitigated_by
                             finding.active = False
-                            finding.verified = verified
-                    if not finding.component_name or not finding.component_version:
+                            if verified is not None:
+                                finding.verified = verified
+
+                    if (component_name is not None and not finding.component_name) or (component_version is not None and not finding.component_version):
                         finding.component_name = finding.component_name if finding.component_name else component_name
                         finding.component_version = finding.component_version if finding.component_version else component_version
                         finding.save(dedupe_option=False)
@@ -180,8 +196,14 @@ class DojoDefaultReImporter(object):
                 item.reporter = user
                 item.last_reviewed = timezone.now()
                 item.last_reviewed_by = user
-                item.verified = verified
-                item.active = active
+
+                if active is not None:
+                    # indicates an override. Otherwise, do not change the value of item.active
+                    item.active = active
+
+                if verified is not None:
+                    # indicates an override. Otherwise, do not change the value of verified
+                    item.verified = verified
 
                 # if scan_date was provided, override value from parser
                 if scan_date:
@@ -336,7 +358,7 @@ class DojoDefaultReImporter(object):
 
         return mitigated_findings
 
-    def reimport_scan(self, scan, scan_type, test, active=True, verified=True, tags=None, minimum_severity=None,
+    def reimport_scan(self, scan, scan_type, test, active=None, verified=None, tags=None, minimum_severity=None,
                     user=None, endpoints_to_add=None, scan_date=None, version=None, branch_tag=None, build_id=None,
                     commit_hash=None, push_to_jira=None, close_old_findings=True, group_by=None, api_scan_configuration=None,
                     service=None, do_not_reactivate=False, create_finding_groups_for_all_findings=True):
@@ -379,7 +401,7 @@ class DojoDefaultReImporter(object):
             results_list = []
             # First kick off all the workers
             for findings_list in chunk_list:
-                result = self.process_parsed_findings(test, findings_list, scan_type, user, active, verified,
+                result = self.process_parsed_findings(test, findings_list, scan_type, user, active=active, verified=verified,
                                                       minimum_severity=minimum_severity, endpoints_to_add=endpoints_to_add,
                                                       push_to_jira=push_to_jira, group_by=group_by, now=now, service=service, scan_date=scan_date, sync=False,
                                                       do_not_reactivate=do_not_reactivate, create_finding_groups_for_all_findings=create_finding_groups_for_all_findings)
@@ -402,7 +424,7 @@ class DojoDefaultReImporter(object):
             importer_utils.update_test_progress(test)
         else:
             new_findings, reactivated_findings, findings_to_mitigate, untouched_findings = \
-                self.process_parsed_findings(test, parsed_findings, scan_type, user, active, verified,
+                self.process_parsed_findings(test, parsed_findings, scan_type, user, active=active, verified=verified,
                                              minimum_severity=minimum_severity, endpoints_to_add=endpoints_to_add,
                                              push_to_jira=push_to_jira, group_by=group_by, now=now, service=service, scan_date=scan_date, sync=True,
                                              do_not_reactivate=do_not_reactivate, create_finding_groups_for_all_findings=create_finding_groups_for_all_findings)
