@@ -15,25 +15,113 @@ import dojo.jira_link.helper as jira_helper
 from dojo.authorization.authorization_decorators import user_is_authorized
 from dojo.authorization.roles_permissions import Permissions
 
+from dojo.authorization.authorization import user_has_permission_or_403
+from dojo.forms import FindingBulkUpdateForm
+from dojo.models import Product, Engagement, Finding, GITHUB_PKey
+from dojo.utils import add_breadcrumb, get_words_for_field, get_page_items
+from dojo.finding.views import prefetch_for_findings
+from dojo.finding.queries import get_authorized_findings
+import dojo.finding.helper as finding_helper
+from dojo.filters import FindingFilter, AcceptedFindingFilter
+
 logger = logging.getLogger(__name__)
 
 
+def get_filtered_grouped_findings(request, pid=None, fgid=None, filter_name=None, order_by='numerical_severity'):
+    findings_in_group = get_object_or_404(Finding_Group, pk=fgid).findings.all()
+    findings = get_authorized_findings(Permissions.Finding_View, queryset=findings_in_group)
+
+    findings = findings.order_by(order_by)
+
+    if filter_name == 'Open':
+        findings = findings.filter(finding_helper.OPEN_FINDINGS_QUERY)
+    elif filter_name == 'Verified':
+        findings = findings.filter(finding_helper.VERIFIED_FINDINGS_QUERY)
+    elif filter_name == 'Out of Scope':
+        findings = findings.filter(finding_helper.OUT_OF_SCOPE_FINDINGS_QUERY)
+    elif filter_name == 'False Positive':
+        findings = findings.filter(finding_helper.FALSE_POSITIVE_FINDINGS_QUERY)
+    elif filter_name == 'Inactive':
+        findings = findings.filter(finding_helper.INACTIVE_FINDINGS_QUERY)
+    elif filter_name == 'Accepted':
+        findings = findings.filter(finding_helper.ACCEPTED_FINDINGS_QUERY)
+    elif filter_name == 'Closed':
+        findings = findings.filter(finding_helper.CLOSED_FINDINGS_QUERY)
+
+    if filter_name == 'Accepted':
+        findings = AcceptedFindingFilter(request.GET, findings, user=request.user, pid=pid)
+    else:
+        findings = FindingFilter(request.GET, findings, user=request.user, pid=pid)
+
+    return findings
+
+
 @user_is_authorized(Finding_Group, Permissions.Finding_Group_View, 'fgid')
-def view_finding_group(request, fgid):
-    logger.debug('view finding group: %s', fgid)
-    return HttpResponse('Not implemented yet')
+def view_finding_group(request, fgid, filter_name=None, order_by='numerical_severity', prefetch_type='all'):
+    finding_group = get_object_or_404(Finding_Group, pk=fgid)
+    findings = finding_group.findings.all()
+
+    show_product_column = True
+    custom_breadcrumb = None
+    product_tab = None
+    jira_project = None
+    github_config = None
+
+    print('=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=')
+    print(filter_name)
+    print('=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=')
+
+    if pid := finding_group.test.engagement.product.id:
+        product = get_object_or_404(Product, id=pid)
+        user_has_permission_or_403(request.user, product, Permissions.Product_View)
+        product_tab = Product_Tab(product, title="Findings", tab="findings")
+        jira_project = jira_helper.get_jira_project(product)
+        github_config = GITHUB_PKey.objects.filter(product=pid).first()
+    elif eid := finding_group.test.engagement.id:
+        engagement = get_object_or_404(Engagement, id=eid)
+        user_has_permission_or_403(request.user, engagement, Permissions.Engagement_View)
+        product_tab = Product_Tab(engagement.product, title=engagement.name, tab="engagements")
+        jira_project = jira_helper.get_jira_project(engagement)
+        github_config = GITHUB_PKey.objects.filter(product__engagement=eid).first()
+
+    findings_filter = get_filtered_grouped_findings(request, pid, fgid, filter_name, order_by)
+
+    title_words = get_words_for_field(Finding, 'title')
+    component_words = get_words_for_field(Finding, 'component_name')
+
+    paged_findings = get_page_items(request, findings_filter.qs, 25)    
+    paged_findings.object_list = prefetch_for_findings(paged_findings.object_list, prefetch_type)
+
+    bulk_edit_form = FindingBulkUpdateForm(request.GET)
+
+    if github_config:
+        github_config = github_config.git_conf_id
+    
+    filter_name = finding_group.name
+    add_breadcrumb(title=finding_group.name, top_level=not len(request.GET), request=request)
+    return render(request, 'dojo/view_finding_group.html', {
+            'show_product_column': show_product_column,
+            'product_tab': product_tab,
+            'findings': findings,
+            'filtered': findings_filter,
+            'title_words': title_words,
+            'component_words': component_words,
+            'custom_breadcrumb': custom_breadcrumb,
+            'filter_name': filter_name,
+            'jira_project': jira_project,
+            'bulk_edit_form': bulk_edit_form,
+        })
 
 
 @user_is_authorized(Finding_Group, Permissions.Finding_Group_Edit, 'fgid')
 def edit_finding_group(request, fgid):
-    logger.debug('edit finding group: %s', fgid)
-    return HttpResponse('Not implemented yet')
+    finding_group = get_object_or_404(Finding_Group, pk=fgid)
+    return render(request, 'dojo/edit_finding_group.html', {})
 
 
 @user_is_authorized(Finding_Group, Permissions.Finding_Group_Delete, 'fgid')
 @require_POST
 def delete_finding_group(request, fgid):
-    logger.debug('delete finding group: %s', fgid)
     finding_group = get_object_or_404(Finding_Group, pk=fgid)
     form = DeleteFindingGroupForm(instance=finding_group)
 
