@@ -284,6 +284,12 @@ class DeleteFindingGroupForm(forms.ModelForm):
         model = Finding_Group
         fields = ['id']
 
+class EditFindingGroupForm(forms.ModelForm):
+
+    class Meta:
+        model = Finding_Group
+        fields = ['name']
+
 
 class Edit_Product_MemberForm(forms.ModelForm):
 
