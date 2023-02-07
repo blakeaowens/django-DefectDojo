@@ -1,6 +1,6 @@
 # #  findings
 from dojo.utils import Product_Tab
-from dojo.forms import DeleteFindingGroupForm
+from dojo.forms import DeleteFindingGroupForm, EditFindingGroupForm
 from dojo.notifications.helper import create_notification
 from django.contrib import messages
 from django.contrib.admin.utils import NestedObjects
@@ -83,7 +83,22 @@ def view_finding_group(request, fgid):
 @user_is_authorized(Finding_Group, Permissions.Finding_Group_Edit, 'fgid')
 def edit_finding_group(request, fgid):
     finding_group = get_object_or_404(Finding_Group, pk=fgid)
-    return render(request, 'dojo/edit_finding_group.html', {})
+    form = EditFindingGroupForm(instance=finding_group)
+    
+    if request.method == 'POST':
+        form = EditFindingGroupForm(request.POST, instance=finding_group)
+        if form.is_valid():
+            finding_group.name = form.cleaned_data.get('name', '')
+            finding_group.save()
+            return HttpResponseRedirect(reverse('view_test', args=(finding_group.test.id,)))
+        
+    product_tab = Product_Tab(finding_group.test.engagement.product, title="Product", tab="findings")
+    
+    return render(request, 'dojo/edit_finding_group.html', {
+            'finding_group': finding_group,
+            'form': form,
+            'product_tab': product_tab,
+        })
 
 
 @user_is_authorized(Finding_Group, Permissions.Finding_Group_Delete, 'fgid')
@@ -116,12 +131,12 @@ def delete_finding_group(request, fgid):
     rels = collector.nested()
     product_tab = Product_Tab(finding_group.test.engagement.product, title="Product", tab="settings")
 
-    return render(request, 'dojo/delete_finding_group.html',
-                  {'finding_group': finding_group,
-                   'form': form,
-                   'product_tab': product_tab,
-                   'rels': rels,
-                   })
+    return render(request, 'dojo/delete_finding_group.html', {
+            'finding_group': finding_group,
+            'form': form,
+            'product_tab': product_tab,
+            'rels': rels,
+        })
 
 
 @user_is_authorized(Finding_Group, Permissions.Finding_Group_Edit, 'fgid')
