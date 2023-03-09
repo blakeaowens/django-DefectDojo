@@ -272,11 +272,11 @@ class DedupeTest(BaseTestCase):
 
     @on_exception_html_source_logger
     def test_import_same_eng_tests(self):
-        logger.debug("Importing reports")
-        # First test : Immuniweb Scan (dynamic)
-
+        """Test different scanners - different engagement - dynamic"""
         driver = self.driver
         self.goto_active_engagements_overview(driver)
+
+        # First test : Immuniweb Scan (dynamic)
         driver.find_element(By.PARTIAL_LINK_TEXT, "Dedupe Same Eng Test").click()
         driver.find_element(By.PARTIAL_LINK_TEXT, "Same Eng Test 1").click()
         driver.find_element(By.ID, "dropdownMenu1").click()
@@ -422,7 +422,7 @@ class DedupeTest(BaseTestCase):
         self.goto_active_engagements_overview(driver)
         driver.find_element(By.PARTIAL_LINK_TEXT, "Dedupe Immuniweb Test").click()
         driver.find_element(By.PARTIAL_LINK_TEXT, "Immuniweb Test").click()
-        driver.find_element(By.CSS_SELECTOR, "b.fa-solid.fa-ellipsis-vertical").click()
+        driver.find_element(By.CSS_SELECTOR, "i.fa-solid.fa-ellipsis-vertical").click()
         driver.find_element(By.LINK_TEXT, "Re-Upload Scan Results").click()
         driver.find_element(By.ID, 'id_file').send_keys(self.relative_path + "/dedupe_scans/dedupe_endpoint_1.xml")
         driver.find_elements(By.CSS_SELECTOR, "button.btn.btn-primary")[1].click()
@@ -433,7 +433,7 @@ class DedupeTest(BaseTestCase):
         self.goto_active_engagements_overview(driver)
         driver.find_element(By.PARTIAL_LINK_TEXT, "Dedupe Generic Test").click()
         driver.find_element(By.PARTIAL_LINK_TEXT, "Generic Test").click()
-        driver.find_element(By.CSS_SELECTOR, "b.fa-solid.fa-ellipsis-vertical").click()
+        driver.find_element(By.CSS_SELECTOR, "i.fa-solid.fa-ellipsis-vertical").click()
         driver.find_element(By.LINK_TEXT, "Re-Upload Scan Results").click()
         driver.find_element(By.ID, 'id_file').send_keys(self.relative_path + "/dedupe_scans/dedupe_cross_1.csv")
         driver.find_elements(By.CSS_SELECTOR, "button.btn.btn-primary")[1].click()

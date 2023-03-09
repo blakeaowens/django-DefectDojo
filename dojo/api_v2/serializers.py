@@ -1,3 +1,5 @@
+from dojo.group.utils import get_auth_group_name
+from django.contrib.auth.models import Group
 from typing import List
 from drf_spectacular.utils import extend_schema_field
 from drf_yasg.utils import swagger_serializer_method
@@ -12,15 +14,17 @@ from dojo.models import IMPORT_ACTIONS, SEVERITIES, SLA_Configuration, STATS_FIE
     User, Stub_Finding, Risk_Acceptance, \
     Finding_Template, Test_Type, Development_Environment, NoteHistory, \
     JIRA_Issue, Tool_Product_Settings, Tool_Configuration, Tool_Type, \
-    Product_Type, JIRA_Instance, Endpoint, JIRA_Project, \
-    Notes, DojoMeta, Note_Type, App_Analysis, Endpoint_Status, \
-    Sonarqube_Issue, Sonarqube_Issue_Transition, \
+    Product_Type, JIRA_Instance, Endpoint, JIRA_Project, Cred_Mapping, \
+    Notes, DojoMeta, Note_Type, App_Analysis, Endpoint_Status, Cred_User, \
+    Sonarqube_Issue, Sonarqube_Issue_Transition, Endpoint_Params, \
     Regulation, System_Settings, FileUpload, SEVERITY_CHOICES, Test_Import, \
     Test_Import_Finding_Action, Product_Type_Member, Product_Member, \
     Product_Group, Product_Type_Group, Dojo_Group, Role, Global_Role, Dojo_Group_Member, \
     Language_Type, Languages, Notifications, NOTIFICATION_CHOICES, Engagement_Presets, \
     Network_Locations, UserContactInfo, Product_API_Scan_Configuration, DEFAULT_NOTIFICATION, \
-    Vulnerability_Id, Vulnerability_Id_Template, get_current_date
+    Vulnerability_Id, Vulnerability_Id_Template, get_current_date, \
+    Question, TextQuestion, ChoiceQuestion, Answer, TextAnswer, ChoiceAnswer, \
+    Engagement_Survey, Answered_Survey, General_Survey
 
 from dojo.tools.factory import requires_file, get_choices_sorted, requires_tool_type
 from dojo.utils import is_scan_file_too_large
@@ -466,8 +470,15 @@ class DojoGroupSerializer(serializers.ModelSerializer):
         exclude = ['auth_group']
 
     def to_representation(self, instance):
+        if not instance.auth_group:
+            auth_group = Group(name=get_auth_group_name(instance))
+            auth_group.save()
+            instance.auth_group = auth_group
+            members = instance.users.all()
+            for member in members:
+                auth_group.user_set.add(member)
+            instance.save()
         ret = super().to_representation(instance)
-
         # This will show only "configuration_permissions" even if user has also other permissions
         all_permissions = set(ret['configuration_permissions'])
         allowed_configuration_permissions = set(self.fields['configuration_permissions'].child_relation.queryset.values_list('id', flat=True))
@@ -569,8 +580,15 @@ class AddUserSerializer(serializers.ModelSerializer):
         fields = ('id', 'username')
 
 
+class NoteTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Note_Type
+        fields = '__all__'
+
+
 class NoteHistorySerializer(serializers.ModelSerializer):
     current_editor = UserStubSerializer(read_only=True)
+    note_type = NoteTypeSerializer(read_only=True, many=False)
 
     class Meta:
         model = NoteHistory
@@ -578,12 +596,10 @@ class NoteHistorySerializer(serializers.ModelSerializer):
 
 
 class NoteSerializer(serializers.ModelSerializer):
-    author = UserStubSerializer(
-        many=False, read_only=True)
-    editor = UserStubSerializer(
-        read_only=True, many=False, allow_null=True)
-
+    author = UserStubSerializer(many=False, read_only=True)
+    editor = UserStubSerializer(read_only=True, many=False, allow_null=True)
     history = NoteHistorySerializer(read_only=True, many=True)
+    note_type = NoteTypeSerializer(read_only=True, many=False)
 
     def update(self, instance, validated_data):
         instance.entry = validated_data.get('entry')
@@ -605,18 +621,20 @@ class NoteSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
-class NoteTypeSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Note_Type
-        fields = '__all__'
-
-
 class FileSerializer(serializers.ModelSerializer):
     file = serializers.FileField(required=True)
 
     class Meta:
         model = FileUpload
         fields = '__all__'
+
+
+class RawFileSerializer(serializers.ModelSerializer):
+    file = serializers.FileField(required=True)
+
+    class Meta:
+        model = FileUpload
+        fields = ['file']
 
 
 class ProductMemberSerializer(serializers.ModelSerializer):
@@ -932,6 +950,12 @@ class EndpointSerializer(TaggitSerializer, serializers.ModelSerializer):
         return data
 
 
+class EndpointParamsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Endpoint_Params
+        fields = '__all__'
+
+
 class JIRAIssueSerializer(serializers.ModelSerializer):
     url = serializers.SerializerMethodField(read_only=True)
 
@@ -1104,6 +1128,19 @@ class TestImportSerializer(serializers.ModelSerializer):
 
 
 class RiskAcceptanceSerializer(serializers.ModelSerializer):
+    recommendation = serializers.SerializerMethodField()
+    decision = serializers.SerializerMethodField()
+
+    @extend_schema_field(serializers.CharField())
+    @swagger_serializer_method(serializers.CharField())
+    def get_recommendation(self, obj):
+        return Risk_Acceptance.TREATMENT_TRANSLATIONS.get(obj.recommendation)
+
+    @extend_schema_field(serializers.CharField())
+    @swagger_serializer_method(serializers.CharField())
+    def get_decision(self, obj):
+        return Risk_Acceptance.TREATMENT_TRANSLATIONS.get(obj.decision)
+
     class Meta:
         model = Risk_Acceptance
         fields = '__all__'
@@ -1268,7 +1305,7 @@ class FindingSerializer(TaggitSerializer, serializers.ModelSerializer):
             is_risk_accepted = data.get('risk_accepted', self.instance.risk_accepted)
         else:
             is_active = data.get('active', True)
-            is_verified = data.get('verified', True)
+            is_verified = data.get('verified', False)
             is_duplicate = data.get('duplicate', False)
             is_false_p = data.get('false_p', False)
             is_risk_accepted = data.get('risk_accepted', False)
@@ -1439,6 +1476,18 @@ class FindingTemplateSerializer(TaggitSerializer, serializers.ModelSerializer):
             save_vulnerability_ids_template(instance, vulnerability_ids)
 
         return super(TaggitSerializer, self).update(instance, validated_data)
+
+
+class CredentialSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Cred_User
+        exclude = ['password']
+
+
+class CredentialMappingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Cred_Mapping
+        fields = '__all__'
 
 
 class StubFindingSerializer(serializers.ModelSerializer):
@@ -1693,7 +1742,7 @@ class ReImportScanSerializer(TaggitSerializer, serializers.Serializer):
         allow_null=True,
         default=None,
         queryset=User.objects.all())
-    tags = TagListSerializerField(required=False, help_text="Modify existing tags that help describe this scan.")
+    tags = TagListSerializerField(required=False, help_text="Modify existing tags that help describe this scan. (Existing test tags will be overwritten)")
 
     group_by = serializers.ChoiceField(required=False, choices=Finding_Group.GROUP_BY_OPTIONS, help_text='Choose an option to automatically group new findings by the chosen option.')
     create_finding_groups_for_all_findings = serializers.BooleanField(help_text="If set to false, finding groups will only be created when there is more than one grouped finding", required=False, default=True)
@@ -1761,7 +1810,7 @@ class ReImportScanSerializer(TaggitSerializer, serializers.Serializer):
                 reimporter = ReImporter()
                 test, finding_count, new_finding_count, closed_finding_count, reactivated_finding_count, untouched_finding_count, test_import = \
                     reimporter.reimport_scan(scan, scan_type, test, active=active, verified=verified,
-                                                tags=None, minimum_severity=minimum_severity,
+                                                tags=tags, minimum_severity=minimum_severity,
                                                 endpoints_to_add=endpoints_to_add, scan_date=scan_date_time,
                                                 version=version, branch_tag=branch_tag, build_id=build_id,
                                                 commit_hash=commit_hash, push_to_jira=push_to_jira,
@@ -2160,3 +2209,112 @@ class ConfigurationPermissionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Permission
         exclude = ['content_type']
+
+
+class QuestionnaireQuestionSerializer(serializers.ModelSerializer):
+    def to_representation(self, instance):
+        if isinstance(instance, TextQuestion):
+            return TextQuestionSerializer(instance=instance).data
+        elif isinstance(instance, ChoiceQuestion):
+            return ChoiceQuestionSerializer(instance=instance).data
+        else:
+            return QuestionSerializer(instance=instance).data
+
+    class Meta:
+        model = Question
+        exclude = ['polymorphic_ctype']
+
+
+class QuestionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Question
+        exclude = ['polymorphic_ctype']
+
+
+class TextQuestionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TextQuestion
+        exclude = ['polymorphic_ctype']
+
+
+class ChoiceQuestionSerializer(serializers.ModelSerializer):
+    choices = serializers.StringRelatedField(many=True)
+
+    class Meta:
+        model = ChoiceQuestion
+        exclude = ['polymorphic_ctype']
+
+
+class QuestionnaireAnsweredSurveySerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Answered_Survey
+        fields = '__all__'
+
+
+class QuestionnaireAnswerSerializer(serializers.ModelSerializer):
+    def to_representation(self, instance):
+        if isinstance(instance, TextAnswer):
+            return TextAnswerSerializer(instance=instance).data
+        elif isinstance(instance, ChoiceAnswer):
+            return ChoiceAnswerSerializer(instance=instance).data
+        else:
+            return AnswerSerializer(instance=instance).data
+
+    class Meta:
+        model = Answer
+        exclude = ['polymorphic_ctype']
+
+
+class AnswerSerializer(serializers.ModelSerializer):
+    question = serializers.StringRelatedField()
+    answered_survey = QuestionnaireAnsweredSurveySerializer()
+
+    class Meta:
+        model = Answer
+        exclude = ['polymorphic_ctype']
+
+
+class TextAnswerSerializer(serializers.ModelSerializer):
+    question = serializers.StringRelatedField()
+    answered_survey = QuestionnaireAnsweredSurveySerializer()
+
+    class Meta:
+        model = TextAnswer
+        exclude = ['polymorphic_ctype']
+
+
+class ChoiceAnswerSerializer(serializers.ModelSerializer):
+    answer = serializers.StringRelatedField(many=True)
+    question = serializers.StringRelatedField()
+    answered_survey = QuestionnaireAnsweredSurveySerializer()
+
+    class Meta:
+        model = ChoiceAnswer
+        exclude = ['polymorphic_ctype']
+
+
+class QuestionnaireEngagementSurveySerializer(serializers.ModelSerializer):
+    questions = serializers.SerializerMethodField()
+
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    @swagger_serializer_method(serializers.ListField(child=serializers.CharField()))
+    def get_questions(self, obj):
+        questions = obj.questions.all()
+        formated_questions = []
+        for question in questions:
+            formated_question = f"Order #{question.order} - {question.text}{' (Optional)' if question.optional else ''}"
+            formated_questions.append(formated_question)
+        return formated_questions
+
+    class Meta:
+        model = Engagement_Survey
+        fields = '__all__'
+
+
+class QuestionnaireGeneralSurveySerializer(serializers.ModelSerializer):
+    survey = QuestionnaireEngagementSurveySerializer()
+
+    class Meta:
+        model = General_Survey
+        fields = '__all__'

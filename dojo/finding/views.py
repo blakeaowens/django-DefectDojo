@@ -268,11 +268,11 @@ def view_finding(request, fid):
     logger.debug(findings)
     try:
         prev_finding_id = findings[(list(findings).index(finding.id)) - 1]
-    except AssertionError:
+    except (AssertionError, ValueError):
         prev_finding_id = finding.id
     try:
         next_finding_id = findings[(list(findings).index(finding.id)) + 1]
-    except IndexError:
+    except (IndexError, ValueError):
         next_finding_id = finding.id
 
     cred_finding = Cred_Mapping.objects.filter(
@@ -877,7 +877,8 @@ def edit_finding(request, fid):
             # if there's a finding group, that's what we need to push
             push_group_to_jira = push_to_jira and new_finding.finding_group
             # any existing finding should be updated
-            push_to_jira = push_to_jira and not push_group_to_jira and not new_finding.has_jira_issue
+            push_to_jira = (push_to_jira and not push_group_to_jira and new_finding.has_jira_issue
+                and jira_helper.get_jira_instance(finding).finding_jira_sync)
 
             finding_helper.save_vulnerability_ids(new_finding, form.cleaned_data['vulnerability_ids'].split())
 
@@ -1291,7 +1292,7 @@ def add_stub_finding(request, tid):
                 messages.SUCCESS,
                 'Stub Finding created successfully.',
                 extra_tags='alert-success')
-            if request.is_ajax():
+            if request.headers.get('x-requested-with') == 'XMLHttpRequest':
                 data = {
                     'message': 'Stub Finding created successfully.',
                     'id': stub_finding.id,
@@ -1301,7 +1302,7 @@ def add_stub_finding(request, tid):
                 }
                 return HttpResponse(json.dumps(data))
         else:
-            if request.is_ajax():
+            if request.headers.get('x-requested-with') == 'XMLHttpRequest':
                 data = {
                     'message':
                     'Stub Finding form has error, please revise and try again.',
