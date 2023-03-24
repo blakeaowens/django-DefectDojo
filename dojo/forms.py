@@ -279,6 +279,23 @@ class DeleteProductForm(forms.ModelForm):
 
 class EditFindingGroupForm(forms.ModelForm):
     name = forms.CharField(max_length=255, required=True, label='Finding Group Name')
+    jira_issue = forms.CharField(max_length=255, required=False, label='Linked JIRA Issue',
+                                 help_text='Leave empty and check push to jira to create a new JIRA issue for this finding group.')
+
+    def __init__(self, *args, **kwargs):
+        super(EditFindingGroupForm, self).__init__(*args, **kwargs)
+        import dojo.jira_link.helper as jira_helper
+
+        self.fields['push_to_jira'] = forms.BooleanField()
+        self.fields['push_to_jira'].required = False
+        self.fields['push_to_jira'].help_text = "Checking this will overwrite content of your JIRA issue, or create one."
+
+        self.fields['push_to_jira'].label = "Push to JIRA"
+
+        if hasattr(self.instance, 'has_jira_issue') and self.instance.has_jira_issue:
+            jira_url = jira_helper.get_jira_url(self.instance)
+            self.fields['jira_issue'].initial = jira_url
+            self.fields['push_to_jira'].widget.attrs['checked'] = 'checked'
 
     class Meta:
         model = Finding_Group
@@ -3037,8 +3054,7 @@ class ChoiceQuestionForm(QuestionForm):
         # we have ChoiceAnswer instance
         if choice_answer:
             choice_answer = choice_answer[0]
-            initial_choices = choice_answer.answer.all().values_list('id',
-                                                                     flat=True)
+            initial_choices = list(choice_answer.answer.all().values_list('id', flat=True))
             if self.question.multichoice is False:
                 initial_choices = initial_choices[0]
 
