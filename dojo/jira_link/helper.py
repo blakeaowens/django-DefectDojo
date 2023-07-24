@@ -413,9 +413,14 @@ def jira_transition(jira, issue, transition_id):
             jira.transition_issue(issue, transition_id)
             return True
     except JIRAError as jira_error:
-        logger.debug('error transisioning jira issue ' + issue.key + ' ' + str(jira_error))
+        logger.debug('error transitioning jira issue ' + issue.key + ' ' + str(jira_error))
         logger.exception(jira_error)
-        log_jira_generic_alert('error transitioning jira issue ' + issue.key, str(jira_error))
+        alert_text = "JiraError HTTP %s" % jira_error.status_code
+        if jira_error.url:
+            alert_text += " url: %s" % jira_error.url
+        if jira_error.text:
+            alert_text += "\ntext: %s" % jira_error.text
+        log_jira_generic_alert('error transitioning jira issue ' + issue.key, alert_text)
         return None
 
 
@@ -534,7 +539,15 @@ def get_tags(obj):
         obj_tags = obj.tags.all()
         if obj_tags:
             for tag in obj_tags:
-                tags.append(str(tag.name))
+                tags.append(str(tag.name.replace(' ', '-')))
+    if type(obj) == Finding_Group:
+        for finding in obj.findings.all():
+            obj_tags = finding.tags.all()
+            if obj_tags:
+                for tag in obj_tags:
+                    if tag not in tags:
+                        tags.append(str(tag.name.replace(' ', '-')))
+
     return tags
 
 
@@ -698,11 +711,15 @@ def add_jira_issue(obj, *args, **kwargs):
 
     obj_can_be_pushed_to_jira, error_message, error_code = can_be_pushed_to_jira(obj)
     if not obj_can_be_pushed_to_jira:
-        log_jira_alert(error_message, obj)
-        logger.warning("%s cannot be pushed to JIRA: %s.", to_str_typed(obj), error_message)
-        logger.warning("The JIRA issue will NOT be created.")
+        if type(obj) == Finding and obj.duplicate and not obj.active:
+            logger.warning("%s will not be pushed to JIRA as it's a duplicate finding", to_str_typed(obj))
+        else:
+            log_jira_alert(error_message, obj)
+            logger.warning("%s cannot be pushed to JIRA: %s.", to_str_typed(obj), error_message)
+            logger.warning("The JIRA issue will NOT be created.")
         return False
     logger.debug('Trying to create a new JIRA issue for %s...', to_str_typed(obj))
+    meta = None
     try:
         JIRAError.log_to_tempfile = False
         jira = get_jira_connection(jira_instance)
@@ -733,7 +750,7 @@ def add_jira_issue(obj, *args, **kwargs):
         logger.debug('sending fields to JIRA: %s', fields)
         new_issue = jira.create_issue(fields)
         if jira_project.default_assignee:
-            new_issue.update(assignee={'name': jira_project.default_assignee})
+            jira.assign_issue(new_issue.key, jira_project.default_assignee)
 
         # Upload dojo finding screenshots to Jira
         findings = [obj]
@@ -825,6 +842,7 @@ def update_jira_issue(obj, *args, **kwargs):
         return False
 
     j_issue = obj.jira_issue
+    meta = None
     try:
         JIRAError.log_to_tempfile = False
         jira = get_jira_connection(jira_instance)
@@ -890,7 +908,9 @@ def update_jira_issue(obj, *args, **kwargs):
     except JIRAError as e:
         logger.exception(e)
         logger.error("jira_meta for project: %s and url: %s meta: %s", jira_project.project_key, jira_project.jira_instance.url, json.dumps(meta, indent=4))  # this is None safe
-        log_jira_alert(e.text, obj)
+        if issue_from_jira_is_active(issue):
+            # Only alert if the upstream JIRA is active, we don't care about closed issues
+            log_jira_alert(e.text, obj)
         return False
 
 
