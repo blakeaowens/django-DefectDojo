@@ -19,6 +19,16 @@ class TestNucleiParser(DojoTestCase):
         findings = parser.get_findings(testfile, Test())
         self.assertEqual(0, len(findings))
 
+    def test_parse_issue_9201(self):
+        testfile = open("unittests/scans/nuclei/issue_9201.json")
+        parser = NucleiParser()
+        findings = parser.get_findings(testfile, Test())
+        self.assertEqual(1, len(findings))
+        for finding in findings:
+            for endpoint in finding.unsaved_endpoints:
+                endpoint.clean()
+        self.assertEqual("example.com", finding.unsaved_endpoints[0].host)
+
     def test_parse_many_findings(self):
         testfile = open("unittests/scans/nuclei/many_findings.json")
         parser = NucleiParser()
@@ -27,7 +37,6 @@ class TestNucleiParser(DojoTestCase):
         for finding in findings:
             for endpoint in finding.unsaved_endpoints:
                 endpoint.clean()
-
         self.assertEqual(16, len(findings))
 
         with self.subTest(i=0):
@@ -216,3 +225,16 @@ class TestNucleiParser(DojoTestCase):
             self.assertEqual(4, finding.references.count("\n"))
             self.assertEqual("favicon-detect", finding.vuln_id_from_tool)
             self.assertEqual("asp.net-favicon", finding.component_name)
+
+    def test_parse_many_findings_v3(self):
+        testfile = open("unittests/scans/nuclei/multiple_v3.json")
+        parser = NucleiParser()
+        findings = parser.get_findings(testfile, Test())
+        testfile.close()
+        for finding in findings:
+            for endpoint in finding.unsaved_endpoints:
+                endpoint.clean()
+        self.assertEqual(5, len(findings))
+        with self.subTest(i=0):
+            finding = findings[0]
+            self.assertEqual("Info", finding.severity)
