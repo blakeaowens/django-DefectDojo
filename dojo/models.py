@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import copy
+import warnings
 from typing import Dict, Set, Optional
 from uuid import uuid4
 from django.conf import settings
@@ -27,6 +28,8 @@ from django.utils import timezone
 from django.utils.html import escape
 from pytz import all_timezones
 from polymorphic.models import PolymorphicModel
+from polymorphic.managers import PolymorphicManager
+from polymorphic.base import ManagerInheritanceWarning
 from multiselectfield import MultiSelectField
 from django import forms
 from django.utils.translation import gettext as _
@@ -1102,7 +1105,7 @@ class Product(models.Model):
     @cached_property
     def endpoint_host_count(self):
         # active_endpoints is (should be) prefetched
-        endpoints = self.active_endpoints
+        endpoints = getattr(self, 'active_endpoints', None)
 
         hosts = []
         for e in endpoints:
@@ -1116,7 +1119,10 @@ class Product(models.Model):
     @cached_property
     def endpoint_count(self):
         # active_endpoints is (should be) prefetched
-        return len(self.active_endpoints)
+        endpoints = getattr(self, 'active_endpoints', None)
+        if endpoints:
+            return len(self.active_endpoints)
+        return None
 
     def open_findings(self, start_date=None, end_date=None):
         if start_date is None or end_date is None:
@@ -1192,13 +1198,11 @@ class Product(models.Model):
         from django.urls import reverse
         return reverse('view_product', args=[str(self.id)])
 
-    @property
     def violates_sla(self):
-        findings = Finding.objects.filter(test__engagement__product=self, active=True)
-        for f in findings:
-            if f.violates_sla:
-                return True
-        return False
+        findings = Finding.objects.filter(test__engagement__product=self,
+                                          active=True,
+                                          sla_expiration_date__lt=timezone.now().date())
+        return findings.count() > 0
 
 
 class Product_Member(models.Model):
@@ -2887,19 +2891,18 @@ class Finding(models.Model):
                 self.sla_expiration_date = get_current_date() + relativedelta(days=days_remaining)
 
     def sla_days_remaining(self):
-        sla_calculation = None
-        sla_period = self.get_sla_period()
-        if sla_period:
-            sla_calculation = sla_period - self.sla_age
-        return sla_calculation
+        if self.sla_expiration_date:
+            if self.mitigated:
+                mitigated_date = self.mitigated
+                if isinstance(mitigated_date, datetime):
+                    mitigated_date = self.mitigated.date()
+                return (self.sla_expiration_date - mitigated_date).days
+            else:
+                return (self.sla_expiration_date - get_current_date()).days
+        return None
 
     def sla_deadline(self):
-        days_remaining = self.sla_days_remaining()
-        if days_remaining:
-            if self.mitigated:
-                return self.mitigated.date() + relativedelta(days=days_remaining)
-            return get_current_date() + relativedelta(days=days_remaining)
-        return None
+        return self.sla_expiration_date
 
     def github(self):
         try:
@@ -3294,8 +3297,7 @@ class Finding(models.Model):
 
     @property
     def violates_sla(self):
-        days_remaining = self.sla_days_remaining()
-        return days_remaining < 0 if days_remaining else False
+        return (self.sla_expiration_date and self.sla_expiration_date < timezone.now().date())
 
 
 class FindingAdmin(admin.ModelAdmin):
@@ -4339,32 +4341,35 @@ class Benchmark_Product_Summary(models.Model):
 # ==========================
 # Defect Dojo Engaegment Surveys
 # ==============================
+with warnings.catch_warnings(action="ignore", category=ManagerInheritanceWarning):
+    class Question(PolymorphicModel, TimeStampedModel):
+        '''
+            Represents a question.
+        '''
 
-class Question(PolymorphicModel, TimeStampedModel):
-    '''
-        Represents a question.
-    '''
+        class Meta:
+            ordering = ['order']
 
-    class Meta:
-        ordering = ['order']
+        order = models.PositiveIntegerField(default=1,
+                                            help_text=_('The render order'))
 
-    order = models.PositiveIntegerField(default=1,
-                                        help_text=_('The render order'))
+        optional = models.BooleanField(
+            default=False,
+            help_text=_("If selected, user doesn't have to answer this question"))
 
-    optional = models.BooleanField(
-        default=False,
-        help_text=_("If selected, user doesn't have to answer this question"))
+        text = models.TextField(blank=False, help_text=_('The question text'), default='')
+        objects = models.Manager()
+        polymorphic = PolymorphicManager()
 
-    text = models.TextField(blank=False, help_text=_('The question text'), default='')
-
-    def __str__(self):
-        return self.text
+        def __str__(self):
+            return self.text
 
 
 class TextQuestion(Question):
     '''
     Question with a text answer
     '''
+    objects = PolymorphicManager()
 
     def get_form(self):
         '''
@@ -4398,8 +4403,8 @@ class ChoiceQuestion(Question):
 
     multichoice = models.BooleanField(default=False,
                                       help_text=_("Select one or more"))
-
     choices = models.ManyToManyField(Choice)
+    objects = PolymorphicManager()
 
     def get_form(self):
         '''
@@ -4468,15 +4473,18 @@ class General_Survey(models.Model):
         return self.survey.name
 
 
-class Answer(PolymorphicModel, TimeStampedModel):
-    ''' Base Answer model
-    '''
-    question = models.ForeignKey(Question, on_delete=models.CASCADE)
+with warnings.catch_warnings(action="ignore", category=ManagerInheritanceWarning):
+    class Answer(PolymorphicModel, TimeStampedModel):
+        ''' Base Answer model
+        '''
+        question = models.ForeignKey(Question, on_delete=models.CASCADE)
 
-    answered_survey = models.ForeignKey(Answered_Survey,
-                                        null=False,
-                                        blank=False,
-                                        on_delete=models.CASCADE)
+        answered_survey = models.ForeignKey(Answered_Survey,
+                                            null=False,
+                                            blank=False,
+                                            on_delete=models.CASCADE)
+        objects = models.Manager()
+        polymorphic = PolymorphicManager()
 
 
 class TextAnswer(Answer):
@@ -4484,6 +4492,7 @@ class TextAnswer(Answer):
         blank=False,
         help_text=_('The answer text'),
         default='')
+    objects = PolymorphicManager()
 
     def __str__(self):
         return self.answer
@@ -4493,6 +4502,7 @@ class ChoiceAnswer(Answer):
     answer = models.ManyToManyField(
         Choice,
         help_text=_('The selected choices as the answer'))
+    objects = PolymorphicManager()
 
     def __str__(self):
         if len(self.answer.all()):
