@@ -76,15 +76,37 @@ class DojoDefaultImporter(object):
 
         for item in items:
             # FIXME hack to remove when all parsers have unit tests for this attribute
-            if item.severity.lower().startswith('info') and item.severity != 'Info':
+            # Importing the cvss module via:
+            # `from cvss import CVSS3`
+            # _and_ given a CVSS vector string such as:
+            # cvss_vector_str = 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N',
+            # the following severity calculation returns the
+            # string values of, "None" instead of the expected string values
+            # of "Info":
+            # ```
+            # cvss_obj = CVSS3(cvss_vector_str)
+            # severities = cvss_obj.severities()
+            # print(severities)
+            # ('None', 'None', 'None')
+            # print(severities[0])
+            # 'None'
+            # print(type(severities[0]))
+            # <class 'str'>
+            # ```
+            if (item.severity.lower().startswith('info') or item.severity.lower() == 'none') and item.severity != 'Info':
                 item.severity = 'Info'
 
             item.numerical_severity = Finding.get_numerical_severity(item.severity)
 
-            if minimum_severity and (Finding.SEVERITIES[item.severity] >
-                    Finding.SEVERITIES[minimum_severity]):
+            if minimum_severity and (Finding.SEVERITIES[item.severity]
+                    > Finding.SEVERITIES[minimum_severity]):
                 # finding's severity is below the configured threshold : ignoring the finding
                 continue
+
+            # Some parsers provide "mitigated" field but do not set timezone (because they are probably not available in the report)
+            # Finding.mitigated is DateTimeField and it requires timezone
+            if item.mitigated and not item.mitigated.tzinfo:
+                item.mitigated = item.mitigated.replace(tzinfo=now.tzinfo)
 
             item.test = test
             item.reporter = user if user else get_current_user
@@ -118,8 +140,8 @@ class DojoDefaultImporter(object):
                     else:
                         group_names_to_findings_dict[name] = [item]
 
-            if (hasattr(item, 'unsaved_req_resp') and
-                    len(item.unsaved_req_resp) > 0):
+            if (hasattr(item, 'unsaved_req_resp')
+                    and len(item.unsaved_req_resp) > 0):
                 for req_resp in item.unsaved_req_resp:
                     burp_rr = BurpRawRequestResponse(
                         finding=item,
@@ -128,8 +150,8 @@ class DojoDefaultImporter(object):
                     burp_rr.clean()
                     burp_rr.save()
 
-            if (item.unsaved_request is not None and
-                    item.unsaved_response is not None):
+            if (item.unsaved_request is not None
+                    and item.unsaved_response is not None):
                 burp_rr = BurpRawRequestResponse(
                     finding=item,
                     burpRequestBase64=base64.b64encode(item.unsaved_request.encode()),
@@ -148,7 +170,7 @@ class DojoDefaultImporter(object):
                 for unsaved_file in item.unsaved_files:
                     data = base64.b64decode(unsaved_file.get('data'))
                     title = unsaved_file.get('title', '<No title>')
-                    file_upload, file_upload_created = FileUpload.objects.get_or_create(
+                    file_upload, _file_upload_created = FileUpload.objects.get_or_create(
                         title=title,
                     )
                     file_upload.file.save(title, ContentFile(data))
@@ -243,7 +265,8 @@ class DojoDefaultImporter(object):
     def import_scan(self, scan, scan_type, engagement, lead, environment, active=None, verified=None, tags=None, minimum_severity=None,
                     user=None, endpoints_to_add=None, scan_date=None, version=None, branch_tag=None, build_id=None,
                     commit_hash=None, push_to_jira=None, close_old_findings=False, close_old_findings_product_scope=False,
-                    group_by=None, api_scan_configuration=None, service=None, title=None, create_finding_groups_for_all_findings=True, apply_tags_to_findings=False):
+                    group_by=None, api_scan_configuration=None, service=None, title=None, create_finding_groups_for_all_findings=True,
+                    apply_tags_to_findings=False, apply_tags_to_endpoints=False):
 
         logger.debug(f'IMPORT_SCAN: parameters: {locals()}')
 
@@ -366,6 +389,12 @@ class DojoDefaultImporter(object):
                 for finding in test_import.findings_affected.all():
                     for tag in tags:
                         finding.tags.add(tag)
+
+            if apply_tags_to_endpoints and tags:
+                for finding in test_import.findings_affected.all():
+                    for endpoint in finding.endpoints.all():
+                        for tag in tags:
+                            endpoint.tags.add(tag)
 
         logger.debug('IMPORT_SCAN: Generating notifications')
         notifications_helper.notify_test_created(test)

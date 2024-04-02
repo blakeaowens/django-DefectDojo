@@ -23,7 +23,7 @@ class TestSysdigParser(TestCase):
         self.assertEqual(1, len(findings))
         self.assertEqual("com.fasterxml.jackson.core:jackson-databind", findings[0].component_name)
         self.assertEqual("2.9.7", findings[0].component_version)
-        self.assertEqual("CVE-2018-19360", findings[0].cve)
+        self.assertEqual("CVE-2018-19360", findings[0].unsaved_vulnerability_ids[0])
 
     def test_sysdig_parser_with_many_vuln_has_many_findings(self):
         testfile = open("unittests/scans/sysdig_reports/sysdig_reports_many_vul.csv")
@@ -44,10 +44,9 @@ class TestSysdigParser(TestCase):
             for finding in findings:
                 for endpoint in finding.unsaved_endpoints:
                     endpoint.clean()
-            self.assertTrue(
-                "sysdig report contains errors:" in str(context.exception)
-            )
-            self.assertTrue("ECONNREFUSED" in str(context.exception))
+        self.assertEqual(
+            "Number of fields in row (22) does not match number of headers (21)", str(context.exception)
+        )
 
     def test_sysdig_parser_missing_cve_field_not_starting_with_cve(self):
         with self.assertRaises(ValueError) as context:
@@ -58,10 +57,9 @@ class TestSysdigParser(TestCase):
             for finding in findings:
                 for endpoint in finding.unsaved_endpoints:
                     endpoint.clean()
-            self.assertTrue(
-                "sysdig report contains errors:" in str(context.exception)
-            )
-            self.assertTrue("ECONNREFUSED" in str(context.exception))
+        self.assertEqual(
+            "Number of fields in row (22) does not match number of headers (21)", str(context.exception)
+        )
 
     def test_sysdig_parser_json_with_many_findings(self):
         testfile = open("unittests/scans/sysdig_reports/sysdig.json")

@@ -44,7 +44,7 @@ class KICSParser(object):
                 expected_value = item.get("expected_value")
                 actual_value = item.get("actual_value")
 
-                description = f"{query.get('description','')}\n"
+                description = f"{query.get('description', '')}\n"
                 if platform:
                     description += f"**Platform:** {platform}\n"
                 if category:
@@ -62,6 +62,7 @@ class KICSParser(object):
                         + category
                         + issue_type
                         + file_name
+                        + expected_value
                         + str(line_number)
                     ).encode("utf-8")
                 ).hexdigest()

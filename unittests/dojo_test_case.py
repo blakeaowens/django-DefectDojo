@@ -158,6 +158,7 @@ class DojoTestUtilsMixin(object):
             'jira-project-form-project_key': 'IFFFNEW',
             'jira-project-form-jira_instance': 2,
             'jira-project-form-enable_engagement_epic_mapping': 'on',
+            'jira-project-form-epic_issue_type_name': 'Epic',
             'jira-project-form-push_notes': 'on',
             'jira-project-form-product_jira_sla_notification': 'on',
             'jira-project-form-custom_fields': 'null',
@@ -170,7 +171,9 @@ class DojoTestUtilsMixin(object):
             'name': 'new product',
             'description': 'new description',
             'prod_type': 1,
-            'sla_configuration': 1
+            'sla_configuration': 1,
+            # A value is set by default by the model, so we need to add it here as well
+            'jira-project-form-epic_issue_type_name': 'Epic',
             # 'project_key': 'IFFF',
             # 'jira_instance': 2,
             # 'enable_engagement_epic_mapping': 'on',
@@ -186,6 +189,7 @@ class DojoTestUtilsMixin(object):
             'jira-project-form-project_key': 'IFFF',
             'jira-project-form-jira_instance': 2,
             'jira-project-form-enable_engagement_epic_mapping': 'on',
+            'jira-project-form-epic_issue_type_name': 'Epic',
             'jira-project-form-push_notes': 'on',
             'jira-project-form-product_jira_sla_notification': 'on',
             'jira-project-form-custom_fields': 'null',
@@ -201,6 +205,7 @@ class DojoTestUtilsMixin(object):
             'jira-project-form-project_key': 'IFFF2',
             'jira-project-form-jira_instance': 2,
             'jira-project-form-enable_engagement_epic_mapping': 'on',
+            'jira-project-form-epic_issue_type_name': 'Epic',
             'jira-project-form-push_notes': 'on',
             'jira-project-form-product_jira_sla_notification': 'on',
             'jira-project-form-custom_fields': 'null',
@@ -214,7 +219,8 @@ class DojoTestUtilsMixin(object):
             'description': product.description,
             'prod_type': product.prod_type.id,
             'sla_configuration': 1,
-
+            # A value is set by default by the model, so we need to add it here as well
+            'jira-project-form-epic_issue_type_name': 'Epic',
             'jira-project-form-custom_fields': 'null',
             # 'project_key': 'IFFF',
             # 'jira_instance': 2,
@@ -253,7 +259,7 @@ class DojoTestUtilsMixin(object):
                     product = Product.objects.get(id=response.url.split('/')[-2])
                 except:
                     raise ValueError('error parsing id from redirect uri: ' + response.url)
-            self.assertTrue(response.url == (expect_redirect_to % product.id))
+            self.assertEqual(response.url, (expect_redirect_to % product.id))
         else:
             self.assertEqual(response.status_code, 200)
 
@@ -401,12 +407,12 @@ class DojoTestUtilsMixin(object):
         response = jira._session.get(url).json().get('fields', {})
         epic_link = response.get(epic_link_field, None)
         if epic_id is None and epic_link is None or issue_in_epic:
-            self.assertTrue(epic_id == epic_link)
+            self.assertEqual(epic_id, epic_link)
         else:
-            self.assertTrue(epic_id != epic_link)
+            self.assertNotEqual(epic_id, epic_link)
 
     def assert_jira_updated_change(self, old, new):
-        self.assertTrue(old != new)
+        self.assertNotEqual(old, new)
 
     def get_latest_model(self, model):
         return model.objects.order_by('id').last()
@@ -729,13 +735,13 @@ class DojoAPITestCase(APITestCase, DojoTestUtilsMixin):
             logger.debug('no findings')
         else:
             for finding in findings_content_json['results']:
-                print(str(finding['id']) + ': ' + finding['title'][:5] + ':' + finding['severity'] + ': active: ' + str(finding['active']) + ': verified: ' + str(finding['verified']) +
-                        ': is_mitigated: ' + str(finding['is_mitigated']) + ": notes: " + str([n['id'] for n in finding['notes']]) +
-                        ": endpoints: " + str(finding['endpoints']))
+                print(str(finding['id']) + ': ' + finding['title'][:5] + ':' + finding['severity'] + ': active: ' + str(finding['active']) + ': verified: ' + str(finding['verified'])
+                        + ': is_mitigated: ' + str(finding['is_mitigated']) + ": notes: " + str([n['id'] for n in finding['notes']])
+                        + ": endpoints: " + str(finding['endpoints']))
 
-                logger.debug(str(finding['id']) + ': ' + finding['title'][:5] + ':' + finding['severity'] + ': active: ' + str(finding['active']) + ': verified: ' + str(finding['verified']) +
-                        ': is_mitigated: ' + str(finding['is_mitigated']) + ": notes: " + str([n['id'] for n in finding['notes']]) +
-                        ": endpoints: " + str(finding['endpoints']))
+                logger.debug(str(finding['id']) + ': ' + finding['title'][:5] + ':' + finding['severity'] + ': active: ' + str(finding['active']) + ': verified: ' + str(finding['verified'])
+                        + ': is_mitigated: ' + str(finding['is_mitigated']) + ": notes: " + str([n['id'] for n in finding['notes']])
+                        + ": endpoints: " + str(finding['endpoints']))
 
         logger.debug('endpoints')
         for ep in Endpoint.objects.all():
