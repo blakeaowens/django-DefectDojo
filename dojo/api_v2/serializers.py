@@ -427,7 +427,7 @@ class ProductMetaSerializer(serializers.ModelSerializer):
 
 class UserSerializer(serializers.ModelSerializer):
     date_joined = serializers.DateTimeField(read_only=True)
-    last_login = serializers.DateTimeField(read_only=True)
+    last_login = serializers.DateTimeField(read_only=True, allow_null=True)
     password = serializers.CharField(
         write_only=True,
         style={"input_type": "password"},
@@ -3013,8 +3013,8 @@ class SLAConfigurationSerializer(serializers.ModelSerializer):
 
 class UserProfileSerializer(serializers.Serializer):
     user = UserSerializer(many=False)
-    user_contact_info = UserContactInfoSerializer(many=False)
-    global_role = GlobalRoleSerializer(many=False)
+    user_contact_info = UserContactInfoSerializer(many=False, required=False)
+    global_role = GlobalRoleSerializer(many=False, required=False)
     dojo_group_member = DojoGroupMemberSerializer(many=True)
     product_type_member = ProductTypeMemberSerializer(many=True)
     product_member = ProductMemberSerializer(many=True)
