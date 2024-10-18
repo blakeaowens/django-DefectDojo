@@ -1721,7 +1721,7 @@ class Endpoint(models.Model):
             return url
 
     def save(self, *args, **kwargs):
-        self.full_path = self.__str__
+        self.full_path = self.__str__()
         return super().save(*args, **kwargs)
 
     def get_absolute_url(self):
