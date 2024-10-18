@@ -1633,6 +1633,8 @@ class Endpoint_Status(models.Model):
 
 
 class Endpoint(models.Model):
+    full_path = models.CharField(null=True, blank=True, max_length=2020, editable=False,
+                                 help_text=_("(readonly) The full path of this endpoint, combining protocol, userinfo, host, etc."))
     protocol = models.CharField(null=True, blank=True, max_length=20,
                                  help_text=_("The communication protocol/scheme such as 'http', 'ftp', 'dns', etc."))
     userinfo = models.CharField(null=True, blank=True, max_length=500,
@@ -1717,6 +1719,10 @@ class Endpoint(models.Model):
             if self.fragment:
                 url += f"#{self.fragment}"
             return url
+
+    def save(self, *args, **kwargs):
+        self.full_path = self.__str__
+        return super().save(*args, **kwargs)
 
     def get_absolute_url(self):
         from django.urls import reverse
