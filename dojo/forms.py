@@ -752,6 +752,23 @@ class UploadThreatForm(forms.Form):
         attrs={"accept": ".jpg,.png,.pdf"}),
         label="Select Threat Model")
 
+    def clean(self):
+        if (file := self.cleaned_data.get("file", None)) is not None:
+            ext = os.path.splitext(file.name)[1]  # [0] returns path+filename
+            valid_extensions = [".jpg", ".png", ".pdf"]
+            if ext.lower() not in valid_extensions:
+                if accepted_extensions := f"{', '.join(valid_extensions)}":
+                    msg = (
+                        "Unsupported extension. Supported extensions are as "
+                        f"follows: {accepted_extensions}"
+                    )
+                else:
+                    msg = (
+                        "File uploads are prohibited due to the list of acceptable "
+                        "file extensions being empty"
+                    )
+                raise ValidationError(msg)
+
 
 class MergeFindings(forms.ModelForm):
     FINDING_ACTION = (("", "Select an Action"), ("inactive", "Inactive"), ("delete", "Delete"))
@@ -2382,10 +2399,7 @@ def get_jira_issue_template_dir_choices():
         #     template_list.append((os.path.join(base_dir, filename), filename))
 
         for dirname in dirnames:
-            if base_dir.startswith(settings.TEMPLATE_DIR_PREFIX):
-                clean_base_dir = base_dir[len(settings.TEMPLATE_DIR_PREFIX):]
-            else:
-                clean_base_dir = base_dir
+            clean_base_dir = base_dir.removeprefix(settings.TEMPLATE_DIR_PREFIX)
             template_dir_list.append((os.path.join(clean_base_dir, dirname), dirname))
 
     logger.debug("templates: %s", template_dir_list)
@@ -3062,7 +3076,7 @@ class JIRAFindingForm(forms.Form):
         elif self.cleaned_data.get("push_to_jira", None):
             active = self.finding_form["active"].value()
             verified = self.finding_form["verified"].value()
-            if not active or not verified:
+            if not active or (not verified and get_system_setting("enforce_verified_status", True)):
                 logger.debug("Findings must be active and verified to be pushed to JIRA")
                 error_message = "Findings must be active and verified to be pushed to JIRA"
                 self.add_error("push_to_jira", ValidationError(error_message, code="not_active_or_verified"))

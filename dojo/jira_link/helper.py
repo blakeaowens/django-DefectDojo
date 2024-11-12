@@ -145,9 +145,11 @@ def can_be_pushed_to_jira(obj, form=None):
 
         logger.debug("can_be_pushed_to_jira: %s, %s, %s", active, verified, severity)
 
-        if not active or not verified:
-            logger.debug("Findings must be active and verified to be pushed to JIRA")
-            return False, "Findings must be active and verified to be pushed to JIRA", "not_active_or_verified"
+        isenforced = get_system_setting("enforce_verified_status", True)
+
+        if not active or (not verified and isenforced):
+            logger.debug("Findings must be active and verified, if enforced by system settings, to be pushed to JIRA")
+            return False, "Findings must be active and verified, if enforced by system settings, to be pushed to JIRA", "not_active_or_verified"
 
         jira_minimum_threshold = None
         if System_Settings.objects.get().jira_minimum_severity:
@@ -159,7 +161,13 @@ def can_be_pushed_to_jira(obj, form=None):
     elif isinstance(obj, Finding_Group):
         if not obj.findings.all():
             return False, f"{to_str_typed(obj)} cannot be pushed to jira as it is empty.", "error_empty"
-        if "Active" not in obj.status():
+        # Accommodating a strange behavior where a finding group sometimes prefers `obj.status` rather than `obj.status()`
+        try:
+            not_active = "Active" not in obj.status()
+        except TypeError:  # TypeError: 'str' object is not callable
+            not_active = "Active" not in obj.status
+        # Determine if the finding group is not active
+        if not_active:
             return False, f"{to_str_typed(obj)} cannot be pushed to jira as it is not active.", "error_inactive"
 
     else:
